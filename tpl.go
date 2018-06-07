@@ -1,5 +1,6 @@
 // Package gotpl produces an useful template loader and some helpers to
 // enhance html/template development experience.
+// see https://github.com/carney520/gotpl for more information.
 package gotpl
 
 import (
