@@ -18,7 +18,11 @@ type tplFile struct {
 	path    string
 	relPath string
 	modTime time.Time
+	data    []byte
 }
+
+// H is recommended type for Execute Template. Many helpers denpend on this type.
+type H map[string]interface{}
 
 // Tpl is a wrapper of "html/template" , produces an useful loader and some helpers
 type Tpl struct {
@@ -27,14 +31,20 @@ type Tpl struct {
 	// Ext is template file extension, default is ".html"
 	Ext string
 	// mux to protect files
-	mux   sync.Mutex
-	files map[string]*tplFile
+	mux       sync.Mutex
+	files     map[string]*tplFile
+	funcMaps  []template.FuncMap
+	debugMode bool
 	// main template
 	t *template.Template
 }
 
 func (t *Tpl) walkFunc(path string, info os.FileInfo, err error) error {
-	if err != nil || info.IsDir() || filepath.Ext(path) != t.Ext {
+	if err != nil {
+		return err
+	}
+
+	if info.IsDir() || filepath.Ext(path) != t.Ext {
 		return nil
 	}
 
@@ -79,6 +89,9 @@ func (t *Tpl) ParseFiles() error {
 		if err != nil {
 			return err
 		}
+		if t.debugMode {
+			fileInfo.data = data
+		}
 		template := t.t.New(tpPath)
 		if _, err := template.Parse(string(data)); err != nil {
 			return err
@@ -91,6 +104,12 @@ func (t *Tpl) ParseFiles() error {
 func (t *Tpl) Load() error {
 	if err := t.Walk(); err != nil {
 		return err
+	}
+	if t.debugMode {
+		fmt.Printf("[gotpl] loading templates:\n")
+		for tpPath := range t.files {
+			fmt.Printf("\t - %s \n", tpPath)
+		}
 	}
 	return t.ParseFiles()
 }
@@ -123,8 +142,6 @@ func (t *Tpl) freshWalkFunc(files *[]*tplFile) filepath.WalkFunc {
 }
 
 func (t *Tpl) walkFreshFiles() ([]*tplFile, error) {
-	t.mux.Lock()
-	defer t.mux.Unlock()
 	files := []*tplFile{}
 	err := filepath.Walk(t.Root, t.freshWalkFunc(&files))
 
@@ -136,25 +153,56 @@ func (t *Tpl) walkFreshFiles() ([]*tplFile, error) {
 
 // Reload walks template root and add new templates or update modified templates
 // it's useful in development
-func (t *Tpl) Reload() error {
-	files, err := t.walkFreshFiles()
-	if err != nil {
-		return err
+func (t *Tpl) Reload() (*template.Template, error) {
+	if !t.debugMode {
+		return nil, errors.New("Reload() only allow in debugMode")
 	}
 
+	files, err := t.walkFreshFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return t.t, nil
+	}
+
+	if t.debugMode {
+		fmt.Printf("[gotpl] Updating templates:\n")
+	}
+
+	t.mux.Lock()
+	defer t.mux.Unlock()
+	// update files
 	for _, file := range files {
+		if t.debugMode {
+			fmt.Printf("\t - %s \n", file.relPath)
+		}
 		data, err := ioutil.ReadFile(file.path)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		template := t.t.New(file.relPath)
-		if _, err := template.Parse(string(data)); err != nil {
-			return err
-		}
+		file.data = data
 		t.files[file.relPath] = file
 	}
 
-	return nil
+	newTpl, err := t.reParse()
+	if err != nil {
+		t.t = newTpl
+	}
+
+	return newTpl, err
+}
+
+func (t *Tpl) reParse() (*template.Template, error) {
+	newTpl := t.newTemplate()
+	for tpPath, fileInfo := range t.files {
+		template := newTpl.New(tpPath)
+		if _, err := template.Parse(string(fileInfo.data)); err != nil {
+			return nil, err
+		}
+	}
+	return newTpl, nil
 }
 
 // Template get underlying template.Template
@@ -164,6 +212,7 @@ func (t *Tpl) Template() *template.Template {
 
 // Funcs adds the elements of the argument map to the template's function map
 func (t *Tpl) Funcs(funcMap template.FuncMap) *Tpl {
+	t.funcMaps = append(t.funcMaps, funcMap)
 	t.t.Funcs(funcMap)
 	return t
 }
@@ -173,9 +222,29 @@ func (t *Tpl) SetExt(ext string) {
 	t.Ext = ext
 }
 
+// EnableDebug enable debug mode
+func (t *Tpl) EnableDebug() {
+	t.debugMode = true
+}
+
+// DisableDebug disable debug mode
+func (t *Tpl) DisableDebug() {
+	t.debugMode = false
+}
+
+func (t *Tpl) newTemplate() *template.Template {
+	tpl := template.New("")
+	for _, funcMap := range t.funcMaps {
+		tpl.Funcs(funcMap)
+	}
+	return tpl
+}
+
 // InstallHelpers intsall helpers from github.com/Masterminds/sprig
 // and builin helpers
 func (t *Tpl) InstallHelpers() {
+	// 存储funcMap
+	t.Funcs(FuncMap())
 }
 
 // New create a new Tpl

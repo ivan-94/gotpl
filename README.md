@@ -17,6 +17,8 @@ func main() {
   app := gin.Default()
   // load template from "./templates"
   tpl := gotpl.New("./templates")
+  err := tpl.Load()
+  exitOnError(err)
   app.SetHTMLTemplate(tpl.Template())
   ...
 }
@@ -63,3 +65,29 @@ the `/posts/index.html` content could be:
 ```
 
 ### Helpers
+
+* `append`: Add a variable to an array, or create an array; in the given context
+
+  ```html
+  {{append . "moreScripts" "js/jquery-ui-1.7.2.custom.min.js"}}
+
+  {{range .moreStyles}}
+      <link rel="stylesheet" type="text/css" href="/public/{{.}}">
+  {{end}}
+  ```
+* `set`: Set a variable in the given context.
+
+  ```html
+  {{set . "title" "Basic Chat room"}}
+
+  <h1>{{.title}}</h1>
+  ```
+
+* raw: Prints raw, unescaped, text. 
+
+  ```html
+  <div class="body">{{raw .blogBody}}</div>
+  ```
+
+## Related Project
+ * [Masterminds/sprig](https://github.com/Masterminds/sprig): Useful template functions for Go templates

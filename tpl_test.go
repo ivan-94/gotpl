@@ -105,7 +105,7 @@ func TestWalkFunc(t *T) {
 	for _, i := range table {
 		err := tpl.walkFunc(i.path, i.info, i.err)
 		if i.reterr && err == nil || !i.reterr && err != nil {
-			t.Errorf("expect return error(%t) but get %s", i.reterr, err)
+			t.Errorf("expect walkFunc(%s) return error(%t) but get %s", i.path, i.reterr, err)
 		}
 	}
 
